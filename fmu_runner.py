@@ -1,49 +1,75 @@
 import numpy as np
+from pathlib import Path
 from fmu_simulator import FMUSimulator
 import matplotlib.pyplot as plt
 
-fmu_path = "models/MassSpringDamper.fmu"
+
+class Controller:
+    def __init__(self, simulator: FMUSimulator):
+        self.simulator = simulator
+
+    def update(self):
+        # Read out state data from simulator
+        (
+            umbilical_tension,
+            filtered_umbilical_tension,
+            tension_measurement,
+            drum_linear_speed,
+            sheave_linear_speed,
+            drum_speed_setpoint,
+        ) = simulator.get_output(
+            [
+                "umbilical_tension",
+                "filtered_umbilical_tension",
+                "tension_measurement",
+                "drum_linear_speed_out",
+                "sheave_linear_speed_out",
+                "drum_speed_setpoint_out",
+            ]
+        )
+
+        drum_motor_torque = 0.0
+        sheave_motor_torque = 0.0
+
+        return drum_motor_torque, sheave_motor_torque
+
+
+fmu_path = Path("C:/Users/s29259/AppData/Local/Temp/OpenModelica/OMEdit/Ums/Ums.fmu")
 rows = []
-simulator = FMUSimulator("models/MassSpringDamper.fmu", 0.0, {"m": 10.0, "d": 1.0, "k": 2.0 })
-x_target = 10.0
-
-x_error = 0.0
-x_error_integral = 0.0
-
-def controller(t, dt, x):
-    global x_error, x_error_integral
-    x_error_prev = x_error
-    x_error = x_target - x
-    x_error_derivative = (x_error - x_error_prev)/dt
-    x_error_integral += x_error*dt
-
-    u = 10.0*x_error + 2.0*x_error_derivative + 1.0*x_error_integral
-
-    return u
-
+simulator = FMUSimulator(fmu_path, 0.0, {})
+controller = Controller(simulator)
 
 stop_time = 100.0
 dt = 0.1
 
 while simulator.t < stop_time:
-    x = simulator.get_output()
-    u = controller(simulator.t, dt, x)
-    simulator.set_input(u)
+    drum_motor_torque, sheave_motor_torque = controller.update()
+
+    simulator.set_input(
+        {
+            "drum_motor_torque": drum_motor_torque,
+            "sheave_motor_torque": sheave_motor_torque,
+        }
+    )
     simulator.step(dt)
 
-    rows.append((simulator.t, x, x_error, u))
+
+# result = np.array(
+#     rows,
+#     dtype=np.dtype(
+#         [
+#             ("time", np.float64),
+#             ("drum_speed_setpoint", np.float64),
+#             ("drum_speed", np.float64),
+#             ("drum_motor_torque", np.float64),
+#         ]
+#     ),
+# )
 
 
-result = np.array(rows, dtype=np.dtype([
-    ('time', np.float64),
-    ('x', np.float64),
-    ('x_error', np.float64),
-    ('u', np.float64)]))
-
-
-fix, axs = plt.subplots(2,1)
-axs[0].plot(result["time"], result["x"])
-axs[0].plot(result["time"], result["x_error"])
-axs[1].plot(result["time"], result["u"])
+fix, axs = plt.subplots(2, 1)
+axs[0].plot(result["time"], result["drum_speed"])
+axs[0].plot(result["time"], result["drum_speed_setpoint"])
+axs[1].plot(result["time"], result["drum_motor_torque"])
 
 plt.show()
