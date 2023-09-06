@@ -61,20 +61,24 @@ class ControllerMassSpringDamper:
         return u
 
 
-# fmu_path = Path("C:/Users/s29259/AppData/Local/Temp/OpenModelica/OMEdit/Ums/Ums.fmu")
-fmu_path = Path("models/MassSpringDamper.fmu")
 rows = []
-simulator = FMUSimulator(fmu_path, 0.0, {"m": 1.0, "d": 1.0, "k": 1.0})
-controller = ControllerMassSpringDamper(simulator)
+# simulator = FMUSimulator(Path("models/MassSpringDamper.fmu"), 0.0, {"m": 1.0, "d": 1.0, "k": 1.0})
+simulator = FMUSimulator(Path("models/Ums.fmu"), 0.0, {})
+# controller = ControllerMassSpringDamper(simulator)
 
-stop_time = 100.0
-dt = 0.01
+stop_time = 10.0
+dt = 0.0005
 
 while simulator.t < stop_time:
+    tension_setpoint = 80.0
+    drum_speed_setpoint = 0.7 * np.sin(1*2*np.pi*simulator.t) + 0.4
     # drum_motor_torque, sheave_motor_torque = controller.update()
-    u = controller.update()
 
-    simulator.set_input({"u": u})
+    # simulator.set_input({"u": u})
+    simulator.set_input({
+        "tension_setpoint": tension_setpoint,
+        "drum_speed_setpoint": drum_speed_setpoint,
+    })
     # simulator.set_input(
     #     {
     #         "drum_motor_torque": drum_motor_torque,
@@ -83,23 +87,28 @@ while simulator.t < stop_time:
     # )
     simulator.step(dt)
 
-    rows.append((simulator.t, *simulator.get_output(simulator.get_output_names()), u))
+    # rows.append((simulator.t, *simulator.get_output(simulator.get_output_names()), u))
+    rows.append((simulator.t, *simulator.get_output(simulator.get_output_names()), tension_setpoint, drum_speed_setpoint))
 
 result = np.array(rows, dtype=np.dtype(
     [
         ("time", np.float64),
         *[(name, np.float64) for name in simulator.get_output_names()],
-        ("u", np.float64),
+        ("tension_setpoint", np.float64),
+        ("drum_speed_setpoint", np.float64),
     ])
 )
 
 
 fix, axs = plt.subplots(2, 1)
-axs[0].plot(result["time"], result["x"])
-axs[1].plot(result["time"], result["u"])
+# axs[0].plot(result["time"], result["x"])
+# axs[1].plot(result["time"], result["u"])
 
-# axs[0].plot(result["time"], result["drum_speed"])
-# axs[0].plot(result["time"], result["drum_speed_setpoint"])
-# axs[1].plot(result["time"], result["drum_motor_torque"])
+axs[0].plot(result["time"], result["drum_speed_out"], label="Drum speed")
+axs[0].plot(result["time"], result["drum_speed_setpoint"], label="Drum speed setpoint")
+axs[0].legend()
+axs[1].plot(result["time"], result["umbilical_tension"], label="Tension")
+axs[1].plot(result["time"], result["tension_setpoint"], label="Tension setpoint")
+axs[1].legend()
 
 plt.show()
