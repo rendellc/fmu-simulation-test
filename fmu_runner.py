@@ -10,6 +10,7 @@ class Controller:
 
     def update(self):
         # Read out state data from simulator
+        t = simulator.t
         (
             umbilical_tension,
             filtered_umbilical_tension,
@@ -34,42 +35,71 @@ class Controller:
         return drum_motor_torque, sheave_motor_torque
 
 
-fmu_path = Path("C:/Users/s29259/AppData/Local/Temp/OpenModelica/OMEdit/Ums/Ums.fmu")
+class ControllerMassSpringDamper:
+    def __init__(self, simulator: FMUSimulator):
+        self.simulator = simulator
+        self.x_prev = None
+        self.t_prev = None
+        self.x_error_integral = 0.0
+
+    def update(self):
+        # Read out state data from simulator
+        x_target = 10.0
+        t = simulator.t
+        x, = simulator.get_output(["x"])
+
+        x_error = x_target - x
+
+        dt = t - self.t_prev if self.t_prev != None else None
+        self.t_prev = t
+        x_dot = (x - self.x_prev)/dt if (self.x_prev != None and dt != None) else 0.0
+        self.x_prev = x
+
+        self.x_error_integral += x_error * dt if dt != None else 0.0
+
+        u = 1.0*x_error + 0.1*x_dot + 0.5 * self.x_error_integral
+        return u
+
+
+# fmu_path = Path("C:/Users/s29259/AppData/Local/Temp/OpenModelica/OMEdit/Ums/Ums.fmu")
+fmu_path = Path("models/MassSpringDamper.fmu")
 rows = []
-simulator = FMUSimulator(fmu_path, 0.0, {})
-controller = Controller(simulator)
+simulator = FMUSimulator(fmu_path, 0.0, {"m": 1.0, "d": 1.0, "k": 1.0})
+controller = ControllerMassSpringDamper(simulator)
 
 stop_time = 100.0
-dt = 0.1
+dt = 0.01
 
 while simulator.t < stop_time:
-    drum_motor_torque, sheave_motor_torque = controller.update()
+    # drum_motor_torque, sheave_motor_torque = controller.update()
+    u = controller.update()
 
-    simulator.set_input(
-        {
-            "drum_motor_torque": drum_motor_torque,
-            "sheave_motor_torque": sheave_motor_torque,
-        }
-    )
+    simulator.set_input({"u": u})
+    # simulator.set_input(
+    #     {
+    #         "drum_motor_torque": drum_motor_torque,
+    #         "sheave_motor_torque": sheave_motor_torque,
+    #     }
+    # )
     simulator.step(dt)
 
+    rows.append((simulator.t, *simulator.get_output(simulator.get_output_names()), u))
 
-# result = np.array(
-#     rows,
-#     dtype=np.dtype(
-#         [
-#             ("time", np.float64),
-#             ("drum_speed_setpoint", np.float64),
-#             ("drum_speed", np.float64),
-#             ("drum_motor_torque", np.float64),
-#         ]
-#     ),
-# )
+result = np.array(rows, dtype=np.dtype(
+    [
+        ("time", np.float64),
+        *[(name, np.float64) for name in simulator.get_output_names()],
+        ("u", np.float64),
+    ])
+)
 
 
 fix, axs = plt.subplots(2, 1)
-axs[0].plot(result["time"], result["drum_speed"])
-axs[0].plot(result["time"], result["drum_speed_setpoint"])
-axs[1].plot(result["time"], result["drum_motor_torque"])
+axs[0].plot(result["time"], result["x"])
+axs[1].plot(result["time"], result["u"])
+
+# axs[0].plot(result["time"], result["drum_speed"])
+# axs[0].plot(result["time"], result["drum_speed_setpoint"])
+# axs[1].plot(result["time"], result["drum_motor_torque"])
 
 plt.show()
