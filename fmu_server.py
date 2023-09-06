@@ -31,6 +31,9 @@ class SimulationIO:
         sub = self.context.socket(zmq.SUB)
         sub.connect("tcp://localhost:7000")
         sub.setsockopt(zmq.SUBSCRIBE, b"input")
+        input_names = self.simulator.get_input_names()
+        for input_name in input_names:
+            sub.setsockopt(zmq.SUBSCRIBE, input_name.encode("utf-8"))
 
         await asyncio.sleep(1)
 
@@ -46,10 +49,12 @@ class SimulationIO:
     async def publisher(self, publish_period: float):
         pub = self.context.socket(zmq.PUB)
         pub.bind("tcp://*:7000")
-        topic = b"output"
+        combined_topic = b"output"
 
-        print("Running publisher")
         output_names = self.simulator.get_output_names()
+        output_name_topics = list(map(lambda name: name.encode("utf-8"), output_names))
+        print("Running publisher")
+
         try:
             while True:
                 await asyncio.sleep(publish_period)
@@ -61,8 +66,10 @@ class SimulationIO:
                     data[output_name] = output_value
 
                 data_serialized = json.dumps(data).encode("utf-8")
-                await pub.send_multipart([topic, data_serialized])
-                print(f"Published: {data_serialized}")
+                await pub.send_multipart([combined_topic, data_serialized])
+                for topic, value in zip(output_name_topics, output_values):
+                    await pub.send_multipart([topic, json.dumps(value).encode("utf-8")])
+
         except Exception as e:
             print("Error with publisher", e)
             print(traceback.format_exc())
@@ -83,6 +90,7 @@ async def test_subscriber():
     sub = context.socket(zmq.SUB)
     sub.connect("tcp://localhost:7000")
     sub.setsockopt(zmq.SUBSCRIBE, b"output")
+    sub.setsockopt(zmq.SUBSCRIBE, b"x")
 
     await asyncio.sleep(1)
 
